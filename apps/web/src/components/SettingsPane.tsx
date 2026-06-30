@@ -165,7 +165,7 @@ const CreatedTokenNotice = ({ token }: CreatedTokenNoticeProps) => {
           {copied ? "已复制" : "复制 Token"}
         </Button>
       </div>
-      <p className="mt-2 text-xs font-medium leading-4 text-emerald-800">安全提醒：此 Token 后续仍可在列表中复制，请仅授予需要的权限。</p>
+      <p className="mt-2 text-xs font-medium leading-4 text-emerald-800">安全提醒：此 Token 属于高危凭证，请勿对外泄露。</p>
     </div>
   );
 };
