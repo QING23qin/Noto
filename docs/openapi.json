@@ -377,8 +377,8 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 100,
-              "default": 80
+              "maximum": 5000,
+              "default": 5000
             }
           }
         ],
@@ -395,9 +395,13 @@
                       "items": {
                         "$ref": "#/components/schemas/MemoSummary"
                       }
+                    },
+                    "totalCount": {
+                      "type": "integer",
+                      "minimum": 0
                     }
                   },
-                  "required": ["memos"]
+                  "required": ["memos", "totalCount"]
                 }
               }
             }

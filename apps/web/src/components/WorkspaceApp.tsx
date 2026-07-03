@@ -143,8 +143,9 @@ const cacheMemoDetail = (queryClient: QueryClient, memo: MemoDetail, view: MemoV
 const prependMemoSummaryToList = (queryClient: QueryClient, queryKey: readonly unknown[], memo: MemoDetail) => {
   const summary = memoToSummary(memo);
 
-  queryClient.setQueryData<{ memos: MemoSummary[] }>(queryKey, (current) => ({
+  queryClient.setQueryData<{ memos: MemoSummary[]; totalCount?: number }>(queryKey, (current) => ({
     memos: [summary, ...(current?.memos ?? []).filter((item) => item.id !== memo.id)],
+    totalCount: (current?.totalCount ?? current?.memos.length ?? 0) + 1,
   }));
 };
 
@@ -918,6 +919,7 @@ export const WorkspaceApp = ({
   });
 
   const memos = memosQuery.data?.memos ?? [];
+  const totalMemoCount = memosQuery.data?.totalCount ?? memos.length;
   const selectedMemoIndex = selectedMemoId ? memos.findIndex((memo) => memo.id === selectedMemoId) : -1;
   const previousMemoId = selectedMemoIndex > 0 ? memos[selectedMemoIndex - 1]?.id : null;
   const nextMemoId =
@@ -1040,12 +1042,13 @@ export const WorkspaceApp = ({
       ]);
 
       const memoIdSet = new Set(memoIds);
-      const previousMemoQueries = queryClient.getQueriesData<{ memos: MemoSummary[] }>({ queryKey: ["memos"] });
+      const previousMemoQueries = queryClient.getQueriesData<{ memos: MemoSummary[]; totalCount?: number }>({ queryKey: ["memos"] });
       const previousMemoDetailQueries = queryClient.getQueriesData<{ memo: MemoDetail }>({ queryKey: ["memo"] });
 
-      queryClient.setQueriesData<{ memos: MemoSummary[] }>({ queryKey: ["memos"] }, (current) =>
+      queryClient.setQueriesData<{ memos: MemoSummary[]; totalCount?: number }>({ queryKey: ["memos"] }, (current) =>
         current
           ? {
+              ...current,
               memos: current.memos.map((memo) => (memoIdSet.has(memo.id) ? { ...memo, isPinned } : memo)),
             }
           : current
@@ -1994,6 +1997,7 @@ export const WorkspaceApp = ({
               notebooks={notebooks}
               view={memoView}
               memos={memos}
+              totalMemoCount={totalMemoCount}
               selectedMemoId={selectedMemoId}
               selectedMemoIds={selectedMemoIds}
               selectionMode={memoSelectionModeActive}

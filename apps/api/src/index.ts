@@ -696,7 +696,7 @@ app.get("/api/v1/memos", async (c) => {
   const notebookId = c.req.query("notebookId");
   const q = c.req.query("q")?.trim();
   const includeTrash = c.req.query("trash") === "1";
-  const limit = clampNumber(Number(c.req.query("limit") ?? 80), 1, 100);
+  const limit = clampNumber(Number(c.req.query("limit") ?? 5000), 1, 5000);
   const deletedClause = includeTrash ? "m.is_deleted = 1" : "m.is_deleted = 0";
 
   if (q) {
@@ -704,57 +704,97 @@ app.get("/api/v1/memos", async (c) => {
     const likeQuery = `%${escapeLike(q)}%`;
 
     if (ftsQuery) {
-      const rows = await c.env.DB.prepare(
-        `WITH raw_matches(memo_id, rank) AS (
-           SELECT memo_id, bm25(memos_fts)
-           FROM memos_fts
-           WHERE memos_fts MATCH ?
+      const [rows, totalRow] = await Promise.all([
+        c.env.DB.prepare(
+          `WITH raw_matches(memo_id, rank) AS (
+             SELECT memo_id, bm25(memos_fts)
+             FROM memos_fts
+             WHERE memos_fts MATCH ?
 
-           UNION ALL
+             UNION ALL
 
-           SELECT m.id, 100.0
-           FROM memos m
+             SELECT m.id, 100.0
+             FROM memos m
+             INNER JOIN memo_contents c ON c.memo_id = m.id
+             WHERE m.title LIKE ? ESCAPE '\\'
+                OR c.content_text LIKE ? ESCAPE '\\'
+                OR m.tags_json LIKE ? ESCAPE '\\'
+           ),
+           search_matches AS (
+             SELECT memo_id, MIN(rank) AS rank
+             FROM raw_matches
+             GROUP BY memo_id
+           )
+           SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
+                  m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision
+           FROM search_matches s
+           INNER JOIN memos m ON m.id = s.memo_id
            INNER JOIN memo_contents c ON c.memo_id = m.id
-           WHERE m.title LIKE ? ESCAPE '\\'
-              OR c.content_text LIKE ? ESCAPE '\\'
-              OR m.tags_json LIKE ? ESCAPE '\\'
-         ),
-         search_matches AS (
-           SELECT memo_id, MIN(rank) AS rank
-           FROM raw_matches
-           GROUP BY memo_id
-         )
-         SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
-                m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision
-         FROM search_matches s
-         INNER JOIN memos m ON m.id = s.memo_id
-         INNER JOIN memo_contents c ON c.memo_id = m.id
-         WHERE ${deletedClause}
-           AND (? IS NULL OR m.notebook_id = ?)
-         ORDER BY s.rank ASC, m.is_pinned DESC, m.updated_at DESC
-         LIMIT ?`
-      )
-        .bind(ftsQuery, likeQuery, likeQuery, likeQuery, notebookId ?? null, notebookId ?? null, limit)
-        .all<MemoSummaryRow>();
+           WHERE ${deletedClause}
+             AND (? IS NULL OR m.notebook_id = ?)
+           ORDER BY s.rank ASC, m.is_pinned DESC, m.updated_at DESC
+           LIMIT ?`
+        )
+          .bind(ftsQuery, likeQuery, likeQuery, likeQuery, notebookId ?? null, notebookId ?? null, limit)
+          .all<MemoSummaryRow>(),
+        c.env.DB.prepare(
+          `WITH raw_matches(memo_id) AS (
+             SELECT memo_id
+             FROM memos_fts
+             WHERE memos_fts MATCH ?
 
-      return c.json({ memos: rows.results.map(mapMemoSummary) });
+             UNION ALL
+
+             SELECT m.id
+             FROM memos m
+             INNER JOIN memo_contents c ON c.memo_id = m.id
+             WHERE m.title LIKE ? ESCAPE '\\'
+                OR c.content_text LIKE ? ESCAPE '\\'
+                OR m.tags_json LIKE ? ESCAPE '\\'
+           ),
+           search_matches AS (
+             SELECT memo_id
+             FROM raw_matches
+             GROUP BY memo_id
+           )
+           SELECT COUNT(*) AS count
+           FROM search_matches s
+           INNER JOIN memos m ON m.id = s.memo_id
+           WHERE ${deletedClause}
+             AND (? IS NULL OR m.notebook_id = ?)`
+        )
+          .bind(ftsQuery, likeQuery, likeQuery, likeQuery, notebookId ?? null, notebookId ?? null)
+          .first<{ count: number }>(),
+      ]);
+
+      return c.json({ memos: rows.results.map(mapMemoSummary), totalCount: totalRow?.count ?? rows.results.length });
     }
   }
 
-  const rows = await c.env.DB.prepare(
-    `SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
-            m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision
-     FROM memos m
-     INNER JOIN memo_contents c ON c.memo_id = m.id
-     WHERE ${deletedClause}
-       AND (? IS NULL OR m.notebook_id = ?)
-     ORDER BY ${includeTrash ? "m.deleted_at DESC," : "m.is_pinned DESC,"} m.updated_at DESC
-     LIMIT ?`
-  )
-    .bind(notebookId ?? null, notebookId ?? null, limit)
-    .all<MemoSummaryRow>();
+  const [rows, totalRow] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT m.id, m.notebook_id, m.title, m.excerpt, m.tags_json, m.is_pinned,
+              m.is_archived, m.is_deleted, m.created_at, m.updated_at, m.deleted_at, c.revision
+       FROM memos m
+       INNER JOIN memo_contents c ON c.memo_id = m.id
+       WHERE ${deletedClause}
+         AND (? IS NULL OR m.notebook_id = ?)
+       ORDER BY ${includeTrash ? "m.deleted_at DESC," : "m.is_pinned DESC,"} m.updated_at DESC
+       LIMIT ?`
+    )
+      .bind(notebookId ?? null, notebookId ?? null, limit)
+      .all<MemoSummaryRow>(),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM memos m
+       WHERE ${deletedClause}
+         AND (? IS NULL OR m.notebook_id = ?)`
+    )
+      .bind(notebookId ?? null, notebookId ?? null)
+      .first<{ count: number }>(),
+  ]);
 
-  return c.json({ memos: rows.results.map(mapMemoSummary) });
+  return c.json({ memos: rows.results.map(mapMemoSummary), totalCount: totalRow?.count ?? rows.results.length });
 });
 
 app.post("/api/v1/memos", zValidator("json", MemoCreateSchema), async (c) => {

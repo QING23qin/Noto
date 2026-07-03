@@ -19,6 +19,7 @@ type ListNotebooksResponse = {
 
 type ListMemosResponse = {
   memos: MemoSummary[];
+  totalCount: number;
 };
 
 type ListMemoRevisionsResponse = {

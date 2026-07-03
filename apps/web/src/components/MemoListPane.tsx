@@ -304,6 +304,7 @@ export const MemoListPane = ({
   notebooks,
   notebook,
   memos,
+  totalMemoCount,
   selectedMemoId,
   selectedMemoIds,
   selectionMode,
@@ -364,6 +365,7 @@ export const MemoListPane = ({
   notebooks: Notebook[];
   notebook: Notebook | null;
   memos: MemoSummary[];
+  totalMemoCount: number;
   selectedMemoId: string | null;
   selectedMemoIds: Set<string>;
   selectionMode: boolean;
@@ -445,7 +447,7 @@ export const MemoListPane = ({
 
   const listTitle = view === "trash" ? "回收站" : notebook?.name ?? "全部笔记";
   const listContextLabel = view === "trash" ? "已删除笔记" : notebook ? "当前笔记本" : "所有笔记本";
-  const listCountLabel = `${filteredMemos.length}${filterMode !== "all" ? ` / ${memos.length}` : ""} ${
+  const listCountLabel = `${filteredMemos.length}${filterMode !== "all" || filteredMemos.length !== totalMemoCount ? ` / ${totalMemoCount}` : ""} ${
     view === "trash" ? "条已删除" : "条笔记"
   }`;
   const selectionCountLabel = getSelectionCountLabel(selectedMemoIds.size);
