@@ -1158,9 +1158,10 @@ export const WorkspaceApp = ({
         setSelectedNotebookId(targetNotebookId);
       }
       cacheMemoDetail(queryClient, data.memo, "notebook");
+      updateMemoSummaryInLists(queryClient, data.memo);
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["memos"] }),
-        queryClient.invalidateQueries({ queryKey: ["notebooks"] }),
+        queryClient.invalidateQueries({ queryKey: ["memos"], refetchType: "inactive" }),
+        queryClient.invalidateQueries({ queryKey: ["notebooks"], refetchType: "inactive" }),
       ]);
       navigateWorkspaceHome();
       setRightView("editor");
