@@ -28,7 +28,7 @@ import { MemoListPane, MemoSelectionActionBar } from "./MemoListPane";
 import { AppConfirmDialog, MemoDeleteConfirmDialog, NotebookNameDialog } from "./dialogs/ConfirmDialogs";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { createExcerpt, docToText, emptyDoc, markdownToDoc, type Notebook, type AuthUser, type MemoSummary, type MemoDetail } from "@edgeever/shared";
+import { createExcerpt, docToText, type Notebook, type AuthUser, type MemoSummary, type MemoDetail } from "@edgeever/shared";
 import type {
   Pane,
   MemoView,
@@ -107,8 +107,6 @@ const TagsDialog = lazy(() => import("./dialogs/TagsDialog").then((module) => ({
 const TemplatesDialog = lazy(() => import("./dialogs/TemplatesDialog").then((module) => ({ default: module.TemplatesDialog })));
 
 const SETTINGS_PATH = "/settings";
-const PENDING_CREATED_MEMO_ID_PREFIX = "pending-created-memo-";
-
 const emptySyncQueueSummary = (): SyncQueueSummary => ({
   total: 0,
   pending: 0,
@@ -255,32 +253,6 @@ const updateMemoSummaryInLists = (queryClient: QueryClient, memo: MemoDetail) =>
       queryClient.setQueryData(queryKey, { ...current, pages });
     }
   }
-};
-
-const createPendingMemoDetail = (notebookId: string, template?: MemoTemplate): MemoDetail => {
-  const now = new Date().toISOString();
-  const contentMarkdown = template?.contentMarkdown ?? "";
-
-  return {
-    id: `${PENDING_CREATED_MEMO_ID_PREFIX}${crypto.randomUUID()}`,
-    notebookId,
-    title: template?.title ?? DEFAULT_MEMO_TITLE,
-    excerpt: "",
-    tags: template?.tags ?? [],
-    isPinned: false,
-    isArchived: false,
-    isDeleted: false,
-    revision: 0,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-    contentJson: contentMarkdown ? markdownToDoc(contentMarkdown) : emptyDoc(),
-    contentMarkdown,
-    contentText: "",
-    sourceMemoIds: [],
-    mergeSourceCount: 0,
-    mergedIntoMemoId: null,
-  };
 };
 
 const getAdjacentMemoIdAfterRemoval = (memos: MemoSummary[], removedMemoIds: Set<string>, anchorMemoId: string) => {
@@ -665,10 +637,6 @@ export const WorkspaceApp = ({
   const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null);
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
   const [createdMemoEditId, setCreatedMemoEditId] = useState<string | null>(null);
-  const [createdMemoSelectionGuardId, setCreatedMemoSelectionGuardId] = useState<string | null>(null);
-  const [isOpeningCreatedMemo, setIsOpeningCreatedMemo] = useState(false);
-  const [pendingCreatedMemo, setPendingCreatedMemo] = useState<MemoDetail | null>(null);
-  const [createdMemoPreserveSourceId, setCreatedMemoPreserveSourceId] = useState<string | null>(null);
   const [selectedMemoIds, setSelectedMemoIds] = useState<Set<string>>(new Set());
   const [memoSelectionMode, setMemoSelectionMode] = useState(false);
   const [selectionMoveTargetNotebookId, setSelectionMoveTargetNotebookId] = useState("");
@@ -705,7 +673,6 @@ export const WorkspaceApp = ({
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const isPullRefreshingRef = useRef(false);
   const skipNextHomeRouteSyncRef = useRef(false);
-  const abandonedPendingMemoIdsRef = useRef<Set<string>>(new Set());
 
   const [mobileListActionsOpen, setMobileListActionsOpen] = useState(false);
   const [mobileMoveOpen, setMobileMoveOpen] = useState(false);
@@ -823,18 +790,7 @@ export const WorkspaceApp = ({
     setMemoSelectionMode(false);
   }, []);
 
-  const clearPendingCreatedMemo = useCallback(
-    (abandon = true) => {
-      if (abandon && pendingCreatedMemo) {
-        abandonedPendingMemoIdsRef.current.add(pendingCreatedMemo.id);
-      }
-
-      setIsOpeningCreatedMemo(false);
-      setPendingCreatedMemo(null);
-      setCreatedMemoPreserveSourceId(null);
-    },
-    [pendingCreatedMemo]
-  );
+  const clearPendingCreatedMemo = useCallback(() => {}, []);
 
   const replaceMemoSelection = useCallback((memoIds: string[]) => {
     setSelectedMemoIds(new Set(memoIds));
@@ -1138,25 +1094,7 @@ export const WorkspaceApp = ({
     selectedMemoIndex >= 0 && selectedMemoIndex < memos.length - 1 ? memos[selectedMemoIndex + 1]?.id : null;
 
   useEffect(() => {
-    if (isOpeningCreatedMemo) {
-      return;
-    }
-
     const selectedMemoInList = selectedMemoId ? memos.some((memo) => memo.id === selectedMemoId) : false;
-    const createdMemoStillMissingFromList = Boolean(
-      selectedMemoId &&
-        createdMemoSelectionGuardId &&
-        selectedMemoId === createdMemoSelectionGuardId &&
-        !selectedMemoInList
-    );
-
-    if (createdMemoStillMissingFromList) {
-      return;
-    }
-
-    if (createdMemoSelectionGuardId && memos.some((memo) => memo.id === createdMemoSelectionGuardId)) {
-      setCreatedMemoSelectionGuardId(null);
-    }
 
     if (memos.length === 0) {
       setSelectedMemoId(null);
@@ -1166,12 +1104,12 @@ export const WorkspaceApp = ({
     if (!selectedMemoId || !selectedMemoInList) {
       setSelectedMemoId(memos[0].id);
     }
-  }, [createdMemoSelectionGuardId, isOpeningCreatedMemo, memos, selectedMemoId]);
+  }, [memos, selectedMemoId]);
 
   const memoQuery = useQuery({
     queryKey: selectedMemoId ? memoDetailQueryKey(selectedMemoId, memoView) : ["memo", selectedMemoId, memoView],
     queryFn: () => api.getMemo(selectedMemoId as string, { includeDeleted: memoView === "trash" }),
-    enabled: Boolean(selectedMemoId && !pendingCreatedMemo),
+    enabled: Boolean(selectedMemoId),
   });
 
   const createNotebookMutation = useMutation({
@@ -1209,31 +1147,11 @@ export const WorkspaceApp = ({
   });
 
   const createMemoMutation = useMutation({
-    mutationFn: ({
-      payload,
-    }: {
-      pendingMemoId: string;
-      payload: { notebookId: string; title?: string; contentMarkdown?: string; tags?: string[] };
-    }) => api.createMemo(payload),
-    onSuccess: (data, variables) => {
-      if (abandonedPendingMemoIdsRef.current.has(variables.pendingMemoId)) {
-        abandonedPendingMemoIdsRef.current.delete(variables.pendingMemoId);
-        setIsOpeningCreatedMemo(false);
-        setPendingCreatedMemo(null);
-        setCreatedMemoPreserveSourceId(null);
-        void Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["memos"] }),
-          queryClient.invalidateQueries({ queryKey: ["notebooks"] }),
-        ]);
-        return;
-      }
-
+    mutationFn: api.createMemo,
+    onSuccess: (data) => {
       const targetNotebookId =
         selectedNotebookId && selectedNotebookId !== data.memo.notebookId ? data.memo.notebookId : selectedNotebookId;
 
-      setIsOpeningCreatedMemo(false);
-      setCreatedMemoPreserveSourceId(variables.pendingMemoId);
-      setPendingCreatedMemo(null);
       setMemoView("notebook");
       setSearch("");
       if (targetNotebookId !== selectedNotebookId) {
@@ -1247,17 +1165,8 @@ export const WorkspaceApp = ({
       navigateWorkspaceHome();
       setRightView("editor");
       setCreatedMemoEditId(data.memo.id);
-      setCreatedMemoSelectionGuardId(data.memo.id);
       setSelectedMemoId(data.memo.id);
       setActivePane("editor");
-    },
-    onError: () => {
-      setIsOpeningCreatedMemo(false);
-      setPendingCreatedMemo(null);
-      setCreatedMemoPreserveSourceId(null);
-      setCreatedMemoEditId(null);
-      setSelectedMemoId(null);
-      setActivePane("memos");
     },
   });
 
@@ -1397,7 +1306,7 @@ export const WorkspaceApp = ({
   const cachedSelectedMemo = selectedMemoId
     ? queryClient.getQueryData<{ memo: MemoDetail }>(memoDetailQueryKey(selectedMemoId, memoView))?.memo ?? null
     : null;
-  const selectedMemo = pendingCreatedMemo ?? memoQuery.data?.memo ?? cachedSelectedMemo;
+  const selectedMemo = memoQuery.data?.memo ?? cachedSelectedMemo;
   const selectionMoveNotebookOptions = useMemo(() => getNotebookMoveOptions(notebooks), [notebooks]);
   const selectedMemosInCurrentList = useMemo(
     () => memos.filter((memo) => selectedMemoIds.has(memo.id)),
@@ -1469,27 +1378,12 @@ export const WorkspaceApp = ({
     }
 
     setTemplatesOpen(false);
-    const pendingMemo = createPendingMemoDetail(defaultMemoNotebookId, template);
-    navigateWorkspaceHome();
-    setIsOpeningCreatedMemo(true);
-    setPendingCreatedMemo(pendingMemo);
-    setCreatedMemoPreserveSourceId(null);
-    setMemoView("notebook");
-    setSearch("");
-    setRightView("editor");
     setMobileBottomNavActive("home");
-    setCreatedMemoEditId(pendingMemo.id);
-    setCreatedMemoSelectionGuardId(null);
-    setSelectedMemoId(pendingMemo.id);
-    setActivePane("editor");
     createMemoMutation.mutate({
-      pendingMemoId: pendingMemo.id,
-      payload: {
-        notebookId: defaultMemoNotebookId,
-        title: template?.title ?? DEFAULT_MEMO_TITLE,
-        contentMarkdown: template?.contentMarkdown ?? "",
-        tags: template?.tags ?? [],
-      },
+      notebookId: defaultMemoNotebookId,
+      title: template?.title ?? DEFAULT_MEMO_TITLE,
+      contentMarkdown: template?.contentMarkdown ?? "",
+      tags: template?.tags ?? [],
     });
   };
 
@@ -1741,7 +1635,6 @@ export const WorkspaceApp = ({
     clearMemoSelection();
     clearPendingCreatedMemo();
     setCreatedMemoEditId(null);
-    setCreatedMemoSelectionGuardId(null);
     setMobileNotebookPickerOpen(false);
     setActivePane("memos");
   };
@@ -1754,7 +1647,6 @@ export const WorkspaceApp = ({
     clearMemoSelection();
     clearPendingCreatedMemo();
     setCreatedMemoEditId(null);
-    setCreatedMemoSelectionGuardId(null);
     setMobileNotebookPickerOpen(false);
     setActivePane("memos");
   };
@@ -1770,7 +1662,6 @@ export const WorkspaceApp = ({
     clearMemoSelection();
     clearPendingCreatedMemo();
     setCreatedMemoEditId(null);
-    setCreatedMemoSelectionGuardId(null);
     setActivePane("memos");
   };
 
@@ -2319,7 +2210,6 @@ export const WorkspaceApp = ({
                 clearMemoSelection();
                 clearPendingCreatedMemo();
                 setCreatedMemoEditId(null);
-                setCreatedMemoSelectionGuardId(null);
                 setSelectedMemoId(null);
                 setActivePane("memos");
               }}
@@ -2328,7 +2218,6 @@ export const WorkspaceApp = ({
                 setRightView("editor");
                 clearPendingCreatedMemo();
                 setCreatedMemoEditId(null);
-                setCreatedMemoSelectionGuardId(null);
                 setSelectedMemoId(memoId);
                 setActivePane("editor");
               }}
@@ -2406,11 +2295,9 @@ export const WorkspaceApp = ({
                   <EditorPane
                     memo={selectedMemo}
                     mobileDefaultEditMemoId={createdMemoEditId}
-                    preserveUnsavedContentFromMemoId={createdMemoPreserveSourceId}
-                    saveBlocked={Boolean(pendingCreatedMemo)}
                     isTrashView={memoView === "trash"}
                     notebooks={notebooks}
-                    isLoading={memoQuery.isLoading || (isOpeningCreatedMemo && !pendingCreatedMemo)}
+                    isLoading={memoQuery.isLoading}
                     searchFocusToken={noteSearchFocusToken}
                     replaceFocusToken={noteReplaceFocusToken}
                     imageCompressionEnabled={imageCompressionEnabled}
@@ -2425,7 +2312,6 @@ export const WorkspaceApp = ({
                       if (nextMemoId) {
                         clearPendingCreatedMemo();
                         setCreatedMemoEditId(null);
-                        setCreatedMemoSelectionGuardId(null);
                         setSelectedMemoId(nextMemoId);
                       }
                     }}
@@ -2433,7 +2319,6 @@ export const WorkspaceApp = ({
                       if (previousMemoId) {
                         clearPendingCreatedMemo();
                         setCreatedMemoEditId(null);
-                        setCreatedMemoSelectionGuardId(null);
                         setSelectedMemoId(previousMemoId);
                       }
                     }}
