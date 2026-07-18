@@ -27,6 +27,7 @@ import {
   Home,
   Image as ImageIcon,
   ImagePlus,
+  Info,
   Italic,
   KeyRound,
   Link,
@@ -1317,11 +1318,13 @@ export const WorkspaceScreen = () => {
       /> : null}
 
       {selectionMoveOpen ? <MoveSelectionModal
+        bottomOffset={58 + safeAreaInsets.bottom}
         isMoving={moveMemosMutation.isPending}
         notebooks={notebooks}
         onClose={() => setSelectionMoveOpen(false)}
         onMove={(notebookId) => moveMemosMutation.mutate({ memoIds: selectedMemoIdList, notebookId })}
         selectedCount={selectedMemoIds.size}
+        selectedNotebookId={activeNotebookId === ALL_NOTES_ID ? flattenNotebooks(notebooks)[0]?.notebook.id ?? "" : activeNotebookId}
         visible
       /> : null}
 
@@ -2075,7 +2078,9 @@ const SettingsView = ({
   onSignOut: () => void;
 }) => {
   const { resolvedTheme, toggleTheme } = useMobileTheme();
+  const { translate } = useMobileLocale();
   const [activeTab, setActiveTab] = useState<SettingsTab | null>(null);
+  const [localePickerOpen, setLocalePickerOpen] = useState(false);
   const tabs: Array<{ key: SettingsTab; label: string; icon: ReactNode }> = [
     { key: "general", label: "常规设置", icon: <SlidersHorizontal color="#059669" size={17} /> },
     ...(isOwner ? [{ key: "users" as const, label: "成员管理", icon: <Users color="#059669" size={17} /> }] : []),
@@ -2083,6 +2088,7 @@ const SettingsView = ({
     { key: "account", label: "登录设置", icon: <ShieldCheck color="#059669" size={17} /> },
   ];
   const title = tabs.find((tab) => tab.key === activeTab)?.label ?? "我的";
+  const activeLocaleLabel = MOBILE_LOCALE_OPTIONS.find((option) => option.value === localePreference)?.label ?? "跟随系统";
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -2108,29 +2114,25 @@ const SettingsView = ({
                   <Text style={styles.settingsRowTitle}>界面语言</Text>
                   <Text style={styles.settingsRowDescription}>切换产品界面的显示语言。</Text>
                 </View>
-                <View style={styles.scopeGrid}>
-                  {MOBILE_LOCALE_OPTIONS.map((option) => {
-                    const selected = localePreference === option.value;
-                    return (
-                      <Pressable key={option.value} onPress={() => onLocalePreferenceChange(option.value)} style={[styles.scopePill, selected && styles.scopePillActive]}>
-                        <Text style={[styles.scopePillText, selected && styles.scopePillTextActive]}>{option.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <Pressable accessibilityLabel="界面语言" accessibilityRole="button" onPress={() => setLocalePickerOpen(true)} style={styles.settingsSelect}>
+                  <Text style={styles.settingsSelectText}>{activeLocaleLabel}</Text>
+                  <ChevronDown color="#64748b" size={18} />
+                </Pressable>
               </View>
             </View>
             <View style={styles.settingsContentRow}>
-              <View style={styles.preferenceRow}>
+              <View style={styles.preferenceStack}>
                 <View style={styles.preferenceText}>
                   <Text style={styles.settingsRowTitle}>压缩笔记内图片</Text>
                   <Text style={styles.settingsRowDescription}>上传大图时在本地压缩，节省资源占用。</Text>
                 </View>
-                <Switch onValueChange={onImageCompressionChange} value={imageCompressionEnabled} />
+                <View style={styles.settingsSwitchStart}>
+                  <Switch accessibilityLabel={translate("是否压缩笔记内图片")} onValueChange={onImageCompressionChange} value={imageCompressionEnabled} />
+                </View>
               </View>
             </View>
+            <SystemInfoCard embedded />
           </SettingsGroup>
-          <SystemInfoCard />
         </View>
       );
     }
@@ -2179,6 +2181,7 @@ const SettingsView = ({
           style={styles.settingsThemeButton}
         >
           {resolvedTheme === "dark" ? <Sun color="#64748b" size={19} /> : <Moon color="#64748b" size={19} />}
+          <Text numberOfLines={1} style={styles.settingsThemeText}>{resolvedTheme === "dark" ? "切换到浅色模式" : "切换到深色模式"}</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.settingsScrollContent} style={styles.viewBody}>
@@ -2196,6 +2199,27 @@ const SettingsView = ({
           </View>
         ) : renderContent()}
       </ScrollView>
+      <Modal animationType="fade" onRequestClose={() => setLocalePickerOpen(false)} transparent visible={localePickerOpen}>
+        <Pressable onPress={() => setLocalePickerOpen(false)} style={styles.actionSheetBackdrop}>
+          <Pressable style={[styles.actionSheet, styles.localePickerSheet]}>
+            <View style={styles.actionSheetHandle} />
+            <Text style={styles.actionSheetTitle}>界面语言</Text>
+            <Text style={styles.actionSheetSubtitle}>切换产品界面的显示语言。</Text>
+            <View style={styles.listActionDivider} />
+            {MOBILE_LOCALE_OPTIONS.map((option) => (
+              <SheetOptionRow
+                active={localePreference === option.value}
+                key={option.value}
+                label={option.label}
+                onPress={() => {
+                  onLocalePreferenceChange(option.value);
+                  setLocalePickerOpen(false);
+                }}
+              />
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -3096,12 +3120,17 @@ const TagsManagerModal = ({ onClose, visible }: { onClose: () => void; visible: 
   return (
     <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible={visible}>
       <SafeAreaView style={styles.modalSafeArea}>
-        <View style={styles.modalHeader}>
-          <IconButton onPress={onClose}>
-            <X color="#0f172a" size={20} />
-          </IconButton>
-          <Text style={styles.modalTitle}>标签管理</Text>
-          <View style={styles.iconButtonPlaceholder} />
+        <View style={styles.managementHeader}>
+          <Pressable accessibilityLabel="返回" accessibilityRole="button" onPress={onClose} style={styles.managementBackButton}>
+            <ChevronLeft color="#64748b" size={21} />
+          </Pressable>
+          <View style={styles.managementHeaderText}>
+            <View style={styles.managementTitleRow}>
+              <Tag color="#047857" size={17} />
+              <Text style={styles.managementTitle}>标签</Text>
+            </View>
+            <Text style={styles.managementSubtitle}>{tags.length} tags</Text>
+          </View>
         </View>
 
         {tagsQuery.isLoading ? (
@@ -3116,7 +3145,6 @@ const TagsManagerModal = ({ onClose, visible }: { onClose: () => void; visible: 
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.editorForm}>
-            <Text style={styles.sectionSubtitle}>共 {tags.length} 个标签</Text>
             {tags.map((tag) => {
               const editing = editingTagName === tag.name;
               const nextName = editingTagValue.trim();
@@ -3515,7 +3543,7 @@ const AdvancedPlayCard = () => {
           </View>
           <Text style={styles.settingsLinkDescription}>搭配 AI Agent 的进阶玩法。</Text>
         </View>
-        {expanded ? <ChevronDown color="#94a3b8" size={17} /> : <ChevronRight color="#94a3b8" size={17} />}
+        <ChevronDown color="#94a3b8" size={17} style={[styles.settingsAccordionChevron, expanded && styles.settingsAccordionChevronExpanded]} />
       </Pressable>
       {expanded ? (
         <View style={styles.settingsAccordionContent}>
@@ -3659,7 +3687,7 @@ const SyncQueueModal = ({
   );
 };
 
-const SystemInfoCard = () => {
+const SystemInfoCard = ({ embedded = false }: { embedded?: boolean }) => {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const localePreference = useMobileLocalePreference();
@@ -3682,11 +3710,11 @@ const SystemInfoCard = () => {
   };
 
   return (
-    <View style={styles.settingsGroup}>
+    <View style={[styles.settingsGroup, embedded && styles.settingsEmbeddedSection]}>
       <Pressable accessibilityState={{ expanded }} onPress={() => setExpanded((value) => !value)} style={styles.settingsAccordionHeader}>
         <View style={styles.settingsLinkCopy}>
           <View style={styles.settingsGroupHeader}>
-            <HardDrive color="#047857" size={16} />
+            <Info color="#047857" size={16} />
             <Text style={styles.settingsGroupTitle}>{copy.title}</Text>
           </View>
           <Text style={styles.settingsLinkDescription}>{copy.description}</Text>
@@ -3738,6 +3766,7 @@ const ResourcesModal = ({
   visible: boolean;
 }) => {
   const { client } = useSession();
+  const { translate } = useMobileLocale();
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState("");
   const [filter, setFilter] = useState<ResourceFilter>("all");
@@ -3908,47 +3937,28 @@ const ResourcesModal = ({
   return (
     <Modal animationType="slide" onRequestClose={() => !uploadResourceMutation.isPending && onClose()} presentationStyle="pageSheet" visible={visible}>
       <SafeAreaView style={styles.modalSafeArea}>
-        <View style={styles.modalHeader}>
-          <IconButton disabled={uploadResourceMutation.isPending} onPress={onClose}>
-            <X color={uploadResourceMutation.isPending ? "#cbd5e1" : "#0f172a"} size={20} />
-          </IconButton>
-          <Text style={styles.modalTitle}>资源库</Text>
-          <IconButton onPress={() => resourcesQuery.refetch()}>
-            {resourcesQuery.isFetching ? <ActivityIndicator color="#0f172a" /> : <RefreshCw color="#0f172a" size={18} />}
-          </IconButton>
+        <View style={styles.managementHeader}>
+          <Pressable
+            accessibilityLabel="返回"
+            accessibilityRole="button"
+            disabled={uploadResourceMutation.isPending}
+            onPress={onClose}
+            style={styles.managementBackButton}
+          >
+            <ChevronLeft color={uploadResourceMutation.isPending ? "#cbd5e1" : "#64748b"} size={21} />
+          </Pressable>
+          <View style={styles.managementHeaderText}>
+            <View style={styles.managementTitleRow}>
+              <Archive color="#047857" size={17} />
+              <Text style={styles.managementTitle}>附件管理</Text>
+            </View>
+            <Text numberOfLines={1} style={styles.managementSubtitle}>
+              {formatBytes(summary.totalBytes)} • {translate(`${summary.totalCount} 文件`)} • {translate(`${summary.imageCount} 图片`)}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.assetsToolbar}>
-          <View style={styles.assetsSummary}>
-            <Archive color="#047857" size={18} />
-            <Text style={styles.assetsSummaryText}>{summary.totalCount} 个文件</Text>
-            <Text style={styles.assetsSummaryMeta}>{formatBytes(summary.totalBytes)}</Text>
-          </View>
-          <View style={styles.assetsSummary}>
-            <ImageIcon color="#64748b" size={16} />
-            <Text style={styles.assetsSummaryMeta}>{summary.imageCount} 张图片</Text>
-            <HardDrive color="#64748b" size={16} />
-            <Text style={styles.assetsSummaryMeta}>{summary.attachmentCount} 个附件</Text>
-          </View>
-
-          <View style={styles.searchBox}>
-            <Search color="#64748b" size={18} />
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setSearchText}
-              placeholder="搜索文件名或来源笔记"
-              placeholderTextColor="#94a3b8"
-              style={styles.searchInput}
-              value={searchText}
-            />
-            {searchText ? (
-              <Pressable onPress={() => setSearchText("")}>
-                <X color="#64748b" size={18} />
-              </Pressable>
-            ) : null}
-          </View>
-
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <OptionPill active={filter === "all"} label="全部" onPress={() => setFilter("all")} />
             <OptionPill active={filter === "image"} label="图片" onPress={() => setFilter("image")} />
@@ -3956,15 +3966,32 @@ const ResourcesModal = ({
             <OptionPill active={filter === "other"} label="其他" onPress={() => setFilter("other")} />
           </ScrollView>
 
-          <View style={styles.layoutToggle}>
-            <Pressable accessibilityRole="button" onPress={() => handleLayoutChange("grid")} style={[styles.layoutToggleButton, layout === "grid" && styles.layoutToggleButtonActive]}>
-              <Grid color={layout === "grid" ? "#047857" : "#64748b"} size={16} />
-              <Text style={[styles.layoutToggleText, layout === "grid" && styles.layoutToggleTextActive]}>网格</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => handleLayoutChange("list")} style={[styles.layoutToggleButton, layout === "list" && styles.layoutToggleButtonActive]}>
-              <List color={layout === "list" ? "#047857" : "#64748b"} size={16} />
-              <Text style={[styles.layoutToggleText, layout === "list" && styles.layoutToggleTextActive]}>列表</Text>
-            </Pressable>
+          <View style={styles.assetsSearchLayoutRow}>
+            <View style={[styles.searchBox, styles.assetsSearchBox]}>
+              <Search color="#64748b" size={17} />
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setSearchText}
+                placeholder="搜索附件名或来源笔记..."
+                placeholderTextColor="#94a3b8"
+                style={styles.searchInput}
+                value={searchText}
+              />
+              {searchText ? (
+                <Pressable onPress={() => setSearchText("")}>
+                  <X color="#64748b" size={17} />
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.layoutToggle}>
+              <Pressable accessibilityLabel="网格视图" accessibilityRole="button" onPress={() => handleLayoutChange("grid")} style={[styles.layoutToggleButton, layout === "grid" && styles.layoutToggleButtonActive]}>
+                <Grid color={layout === "grid" ? "#047857" : "#64748b"} size={16} />
+              </Pressable>
+              <Pressable accessibilityLabel="列表视图" accessibilityRole="button" onPress={() => handleLayoutChange("list")} style={[styles.layoutToggleButton, layout === "list" && styles.layoutToggleButtonActive]}>
+                <List color={layout === "list" ? "#047857" : "#64748b"} size={16} />
+              </Pressable>
+            </View>
           </View>
 
           <Pressable
@@ -5347,74 +5374,84 @@ const MemoList = ({
 };
 
 const MoveSelectionModal = ({
+  bottomOffset,
   isMoving,
   notebooks,
   onClose,
   onMove,
   selectedCount,
+  selectedNotebookId,
   visible,
 }: {
+  bottomOffset: number;
   isMoving: boolean;
   notebooks: Notebook[];
   onClose: () => void;
   onMove: (notebookId: string) => void;
   selectedCount: number;
+  selectedNotebookId: string;
   visible: boolean;
 }) => {
-  const [targetNotebookId, setTargetNotebookId] = useState("");
   const [searchText, setSearchText] = useState("");
   const notebookOptions = flattenNotebooks(notebooks);
 
   useEffect(() => {
     if (visible) {
-      setTargetNotebookId(notebooks[0]?.id ?? "");
       setSearchText("");
     }
-  }, [notebooks, visible]);
+  }, [visible]);
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible={visible}>
-      <SafeAreaView style={styles.modalSafeArea}>
-        <View style={styles.modalHeader}>
-          <IconButton onPress={onClose}>
-            <X color="#0f172a" size={20} />
-          </IconButton>
-          <Text style={styles.modalTitle}>移动笔记</Text>
-          <IconButton onPress={() => targetNotebookId && onMove(targetNotebookId)}>
-            {isMoving ? <ActivityIndicator color="#0f172a" /> : <Check color="#0f172a" size={20} />}
-          </IconButton>
-        </View>
-
-        <ScrollView contentContainerStyle={styles.editorForm}>
-          <Text style={styles.sectionSubtitle}>已选择 {selectedCount} 条笔记</Text>
-          <View style={styles.searchBox}>
-            <Search color="#64748b" size={18} />
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setSearchText}
-              placeholder="搜索笔记本"
-              placeholderTextColor="#94a3b8"
-              style={styles.searchInput}
-              value={searchText}
-            />
-            {searchText ? (
-              <Pressable onPress={() => setSearchText("")}>
-                <X color="#64748b" size={18} />
-              </Pressable>
-            ) : null}
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
+      <Pressable onPress={onClose} style={[styles.actionSheetBackdrop, { paddingBottom: bottomOffset }]}>
+        <Pressable style={[styles.listActionSheet, styles.moveSelectionSheet]}>
+          <View style={styles.actionSheetHandle} />
+          <View style={styles.listActionSheetHeader}>
+            <View style={styles.listActionSheetHeaderText}>
+              <Text style={styles.actionSheetTitle}>移动到笔记本</Text>
+              <Text style={styles.actionSheetSubtitle}>{selectedCount > 0 ? `已选择 ${selectedCount} 条` : "选择笔记"}</Text>
+            </View>
+            <Pressable accessibilityLabel="关闭" accessibilityRole="button" onPress={onClose} style={styles.sheetCloseButton}>
+              <X color="#0f172a" size={18} />
+            </Pressable>
           </View>
-          <Text style={styles.label}>目标笔记本</Text>
-          <NotebookTreeOptionRows
-            emptyIconSize={28}
-            notebooks={notebooks}
-            onSelect={setTargetNotebookId}
-            options={notebookOptions}
-            searchText={searchText}
-            selectedNotebookId={targetNotebookId}
-          />
-        </ScrollView>
-      </SafeAreaView>
+          <View style={styles.moveSelectionSearch}>
+            <View style={styles.searchBox}>
+              <Search color="#64748b" size={18} />
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setSearchText}
+                placeholder="搜索笔记本"
+                placeholderTextColor="#94a3b8"
+                style={styles.searchInput}
+                value={searchText}
+              />
+              {searchText ? (
+                <Pressable onPress={() => setSearchText("")}>
+                  <X color="#64748b" size={18} />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+          <ScrollView contentContainerStyle={styles.moveSelectionList} style={styles.listActionSheetScroll}>
+            <NotebookTreeOptionRows
+              collapsible={false}
+              compact
+              disabled={isMoving}
+              emptyIconSize={28}
+              notebooks={notebooks}
+              onSelect={onMove}
+              options={notebookOptions}
+              searchText={searchText}
+              showDepthPrefix={false}
+              showMemoCount={false}
+              selectedNotebookId={selectedNotebookId}
+            />
+            {isMoving ? <ActivityIndicator color="#0f172a" style={styles.listLoadingFooter} /> : null}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 };
@@ -5540,19 +5577,29 @@ const NotebookParentSelector = ({
 );
 
 const NotebookTreeOptionRows = ({
+  collapsible = true,
+  compact = false,
+  disabled = false,
   emptyIconSize,
   notebooks,
   onSelect,
   options,
   searchText,
   selectedNotebookId,
+  showDepthPrefix = true,
+  showMemoCount = true,
 }: {
+  collapsible?: boolean;
+  compact?: boolean;
+  disabled?: boolean;
   emptyIconSize: number;
   notebooks: Notebook[];
   onSelect: (notebookId: string) => void;
   options: NotebookOption[];
   searchText: string;
   selectedNotebookId: string;
+  showDepthPrefix?: boolean;
+  showMemoCount?: boolean;
 }) => {
   const [collapsedNotebookIds, setCollapsedNotebookIds] = useState<Set<string>>(() => new Set());
   const searchQuery = searchText.trim();
@@ -5585,26 +5632,36 @@ const NotebookTreeOptionRows = ({
   }
 
   return (
-    <View style={styles.notebookTreeRows}>
+    <View style={[styles.notebookTreeRows, compact && styles.notebookTreeRowsCompact]}>
       {visibleNotebookOptions.map(({ depth, notebook }) => (
         <View
           key={notebook.id}
-          style={[styles.moveNotebookRow, selectedNotebookId === notebook.id && styles.moveNotebookRowActive, depth > 0 && { marginLeft: Math.min(depth * 14, 42) }]}
+          style={[
+            styles.moveNotebookRow,
+            compact && styles.moveNotebookRowCompact,
+            selectedNotebookId === notebook.id && styles.moveNotebookRowActive,
+            compact && selectedNotebookId === notebook.id && styles.moveNotebookRowCompactActive,
+            depth > 0 && { marginLeft: Math.min(depth * 14, 42) },
+          ]}
         >
-          {childNotebookIds.has(notebook.id) && !searchQuery ? (
+          {collapsible && childNotebookIds.has(notebook.id) && !searchQuery ? (
             <Pressable accessibilityRole="button" onPress={() => toggleNotebookCollapsed(notebook.id)} style={styles.notebookTreeToggle}>
               {collapsedNotebookIds.has(notebook.id) ? <ChevronRight color="#64748b" size={17} /> : <ChevronDown color="#64748b" size={17} />}
             </Pressable>
+          ) : !collapsible ? (
+            <View style={styles.notebookTreeTogglePlaceholder}>
+              <Folder color={selectedNotebookId === notebook.id ? "#059669" : "#64748b"} size={17} />
+            </View>
           ) : (
             <View style={styles.notebookTreeTogglePlaceholder} />
           )}
-          <Pressable onPress={() => onSelect(notebook.id)} style={styles.moveNotebookSelectArea}>
-            <Text numberOfLines={1} style={styles.panelValue}>
-              {depth > 0 ? `${"· ".repeat(depth)}${notebook.name}` : notebook.name}
+          <Pressable disabled={disabled} onPress={() => onSelect(notebook.id)} style={[styles.moveNotebookSelectArea, disabled && styles.buttonDisabled]}>
+            <Text numberOfLines={1} style={[styles.panelValue, compact && selectedNotebookId === notebook.id && styles.moveNotebookTextCompactActive]}>
+              {showDepthPrefix && depth > 0 ? `${"· ".repeat(depth)}${notebook.name}` : notebook.name}
             </Text>
-            <Text style={styles.panelLabel}>{notebook.memoCount} 条笔记</Text>
+            {showMemoCount ? <Text style={styles.panelLabel}>{notebook.memoCount} 条笔记</Text> : null}
           </Pressable>
-          {selectedNotebookId === notebook.id ? <Check color="#0f172a" size={18} /> : null}
+          {selectedNotebookId === notebook.id ? <Check color={compact ? "#059669" : "#0f172a"} size={18} /> : null}
         </View>
       ))}
     </View>
@@ -6208,7 +6265,7 @@ const getMobileSystemInfoText = (localePreference: MobileLocaleMode) =>
     ? {
         appIdentifier: "App identifier",
         build: "Build",
-        description: "Use this to troubleshoot the app, instance connection, and multi-device environment.",
+        description: "View the current app version, build identifier, and runtime environment.",
         disconnected: "Disconnected",
         followSystem: "Follow system",
         installMode: "Mode",
@@ -6227,7 +6284,7 @@ const getMobileSystemInfoText = (localePreference: MobileLocaleMode) =>
     : {
         appIdentifier: "应用标识",
         build: "构建",
-        description: "用于排查客户端、实例连接和多端环境问题。",
+        description: "查看当前应用版本、构建标识和运行环境。",
         disconnected: "未连接",
         followSystem: "跟随系统",
         installMode: "安装形态",
@@ -6824,9 +6881,16 @@ const baseWorkspaceStyles = StyleSheet.create({
   settingsThemeButton: {
     alignItems: "center",
     borderRadius: 8,
+    flexDirection: "row",
+    gap: 8,
     height: 36,
     justifyContent: "center",
-    width: 36,
+    paddingHorizontal: 8,
+  },
+  settingsThemeText: {
+    color: "#475569",
+    fontSize: 14,
+    fontWeight: "700",
   },
   settingsHeaderTitle: {
     alignItems: "center",
@@ -6890,6 +6954,14 @@ const baseWorkspaceStyles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
   },
+  settingsEmbeddedSection: {
+    borderBottomWidth: 0,
+    borderLeftWidth: 0,
+    borderRadius: 0,
+    borderRightWidth: 0,
+    borderTopColor: "#f1f5f9",
+    borderTopWidth: 1,
+  },
   settingsGroupHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -6907,6 +6979,25 @@ const baseWorkspaceStyles = StyleSheet.create({
     gap: 10,
     minHeight: 64,
     padding: 16,
+  },
+  settingsSelect: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 40,
+    paddingHorizontal: 12,
+  },
+  settingsSelectText: {
+    color: "#0f172a",
+    flex: 1,
+    fontSize: 14,
+  },
+  settingsSwitchStart: {
+    alignItems: "flex-start",
   },
   settingsRowTitle: {
     color: "#0f172a",
@@ -6930,6 +7021,12 @@ const baseWorkspaceStyles = StyleSheet.create({
     justifyContent: "space-between",
     paddingRight: 16,
   },
+  settingsAccordionChevron: {
+    transform: [{ rotate: "0deg" }],
+  },
+  settingsAccordionChevronExpanded: {
+    transform: [{ rotate: "180deg" }],
+  },
   settingsInlineCardHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -6948,6 +7045,9 @@ const baseWorkspaceStyles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     padding: 20,
+  },
+  localePickerSheet: {
+    paddingBottom: 12,
   },
   settingsExampleDialog: {
     backgroundColor: "#ffffff",
@@ -7198,6 +7298,15 @@ const baseWorkspaceStyles = StyleSheet.create({
     gap: 10,
     padding: 14,
   },
+  assetsSearchLayoutRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  assetsSearchBox: {
+    flex: 1,
+    minHeight: 38,
+  },
   assetsSummary: {
     alignItems: "center",
     flexDirection: "row",
@@ -7208,11 +7317,6 @@ const baseWorkspaceStyles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 14,
     fontWeight: "800",
-  },
-  assetsSummaryMeta: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "700",
   },
   assetsHint: {
     color: "#047857",
@@ -7232,20 +7336,12 @@ const baseWorkspaceStyles = StyleSheet.create({
   layoutToggleButton: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 10,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
   },
   layoutToggleButtonActive: {
     backgroundColor: "#ecfdf5",
-  },
-  layoutToggleText: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  layoutToggleTextActive: {
-    color: "#047857",
   },
   uploadButton: {
     alignItems: "center",
@@ -7576,12 +7672,6 @@ const baseWorkspaceStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     lineHeight: 18,
-  },
-  preferenceRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
   },
   preferenceStack: {
     gap: 12,
@@ -7936,6 +8026,42 @@ const baseWorkspaceStyles = StyleSheet.create({
     paddingVertical: 4,
     textAlign: "right",
   },
+  managementHeader: {
+    alignItems: "center",
+    borderBottomColor: "#e2e8f0",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 64,
+    paddingHorizontal: 14,
+  },
+  managementBackButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    height: 36,
+    justifyContent: "center",
+    marginRight: 10,
+    width: 36,
+  },
+  managementHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  managementTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  managementTitle: {
+    color: "#0f172a",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  managementSubtitle: {
+    color: "#64748b",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+  },
   modalHeader: {
     alignItems: "center",
     borderBottomColor: "#e2e8f0",
@@ -7983,6 +8109,18 @@ const baseWorkspaceStyles = StyleSheet.create({
     overflow: "hidden",
     paddingBottom: 8,
     paddingTop: 8,
+  },
+  moveSelectionSheet: {
+    maxHeight: "76%",
+  },
+  moveSelectionSearch: {
+    borderBottomColor: "#f1f5f9",
+    borderBottomWidth: 1,
+    padding: 12,
+  },
+  moveSelectionList: {
+    gap: 8,
+    padding: 8,
   },
   listActionSheetHeader: {
     alignItems: "center",
@@ -8522,6 +8660,18 @@ const baseWorkspaceStyles = StyleSheet.create({
   moveNotebookRowActive: {
     borderColor: "#0f172a",
   },
+  moveNotebookRowCompact: {
+    borderWidth: 0,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  moveNotebookRowCompactActive: {
+    backgroundColor: "#ecfdf5",
+  },
+  moveNotebookTextCompactActive: {
+    color: "#047857",
+  },
   moveNotebookText: {
     flex: 1,
     gap: 4,
@@ -8542,10 +8692,16 @@ const baseWorkspaceStyles = StyleSheet.create({
     width: 32,
   },
   notebookTreeTogglePlaceholder: {
+    alignItems: "center",
+    height: 32,
+    justifyContent: "center",
     width: 32,
   },
   notebookTreeRows: {
     gap: 10,
+  },
+  notebookTreeRowsCompact: {
+    gap: 0,
   },
   editorForm: {
     gap: 12,

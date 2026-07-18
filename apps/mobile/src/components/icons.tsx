@@ -37,6 +37,7 @@ export const History = createIcon("clock");
 export const Home = createIcon("home");
 export const Image = createIcon("image");
 export const ImagePlus = createIcon("plus-square");
+export const Info = createIcon("info");
 export const Italic = createIcon("italic");
 export const KeyRound = createIcon("key");
 export const Link = createIcon("link");
