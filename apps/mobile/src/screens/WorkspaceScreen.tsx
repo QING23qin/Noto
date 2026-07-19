@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient, type UseMutationResult } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
-import type { DocumentPickerAsset } from "expo-document-picker";
+import { File as ExpoFile } from "expo-file-system";
 import type { MemoFilterMode, MemoSortMode } from "@edgeever/client";
 import {
   Archive,
@@ -116,6 +116,7 @@ import {
 } from "../lib/local-mirror";
 import { AccountSecurityPanel } from "./AccountSecurityModal";
 import { beginEditorStartup, markStartup, recordEditorStartup } from "../lib/startup-performance";
+import { prepareUploadAsset } from "../lib/mobile-image-upload";
 import EditorRuntimePrewarm from "../components/EditorRuntimePrewarm";
 import { showEdgeEverKeyboard } from "../../modules/edgeever-keyboard";
 import LocalTiptapEditor, { type LocalTiptapEditorRef } from "../components/LocalTiptapEditor";
@@ -201,10 +202,6 @@ const MOBILE_LOCALE_OPTIONS: Array<{ label: string; value: MobileLocalePreferenc
   { label: "简体中文", value: "zh-CN" },
   { label: "English", value: "en-US" },
 ];
-const COMPRESSIBLE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/avif"]);
-const MAX_COMPRESSED_IMAGE_EDGE = 2560;
-const IMAGE_COMPRESSION_QUALITY = 0.82;
-
 type MobileView = "notes" | "settings";
 type SettingsTab = "general" | "users" | "ai" | "account";
 type MemoView = "notebook" | "trash";
@@ -2228,7 +2225,7 @@ const CreateMemoModal = ({
       setImageOperation("uploading");
       const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
       const form = new FormData();
-      form.append("file", uploadAsset as unknown as Blob);
+      form.append("file", new ExpoFile(uploadAsset.uri));
       const { resource } = await client!.uploadMemoResource(memo.id, form);
       return {
         alt: resource.filename || uploadAsset.name || "图片",
@@ -3172,7 +3169,7 @@ const ResourcesModal = ({
         setUploadProgress(`正在上传第 ${index + 1}/${assets.length} 个文件...`);
         const form = new FormData();
         const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
-        form.append("file", uploadAsset as unknown as Blob);
+        form.append("file", new ExpoFile(uploadAsset.uri));
 
         const { resource } = await client.uploadMemoResource(activeMemo.id, form);
         resources.push(resource);
@@ -4425,7 +4422,7 @@ const RichEditorModal = ({
     try {
       const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
       const form = new FormData();
-      form.append("file", uploadAsset as unknown as Blob);
+      form.append("file", new ExpoFile(uploadAsset.uri));
       const { resource } = await client.uploadMemoResource(memo.id, form);
       return {
         alt: resource.filename || uploadAsset.name || "图片",
@@ -5548,45 +5545,6 @@ const appendResourceMarkdown = (
   return trimmed ? `${trimmed}\n\n${markdown}\n` : `${markdown}\n`;
 };
 
-const prepareUploadAsset = async (
-  asset: DocumentPickerAsset,
-  imageCompressionEnabled: boolean
-): Promise<{ uri: string; name: string; type: string }> => {
-  const mimeType = asset.mimeType || "application/octet-stream";
-  const filename = asset.name || "upload";
-
-  if (!imageCompressionEnabled || !COMPRESSIBLE_IMAGE_TYPES.has(mimeType)) {
-    return {
-      uri: asset.uri,
-      name: filename,
-      type: mimeType,
-    };
-  }
-
-  try {
-    const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
-    const measured = await manipulateAsync(asset.uri, [], { compress: 1, format: SaveFormat.JPEG });
-    const maxEdge = Math.max(measured.width, measured.height);
-    const resizeAction = maxEdge > MAX_COMPRESSED_IMAGE_EDGE ? [{ resize: getCompressedImageSize(measured.width, measured.height) }] : [];
-    const compressed = await manipulateAsync(asset.uri, resizeAction, {
-      compress: IMAGE_COMPRESSION_QUALITY,
-      format: SaveFormat.WEBP,
-    });
-
-    return {
-      uri: compressed.uri,
-      name: toCompressedImageFilename(filename),
-      type: "image/webp",
-    };
-  } catch {
-    return {
-      uri: asset.uri,
-      name: filename,
-      type: mimeType,
-    };
-  }
-};
-
 const createOptimisticMemo = (
   memo: MemoDetail,
   payload: MobileMemoUpdatePayload
@@ -5739,24 +5697,6 @@ const markdownToLocalText = (markdown: string) =>
     .replace(/[`*_>#~-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-
-const getCompressedImageSize = (width: number, height: number) => {
-  if (width >= height) {
-    return { width: MAX_COMPRESSED_IMAGE_EDGE };
-  }
-
-  return { height: MAX_COMPRESSED_IMAGE_EDGE };
-};
-
-const toCompressedImageFilename = (filename: string) => {
-  const trimmed = filename.trim();
-
-  if (!trimmed) {
-    return "image.webp";
-  }
-
-  return trimmed.replace(/\.[^.]+$/, "") + ".webp";
-};
 
 const getTokenScopeLabel = (scope: string) => {
   const labels: Record<string, string> = {
