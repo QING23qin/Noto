@@ -1,7 +1,7 @@
 name = "noto"
 main = "apps/api/src/index.ts"
 compatibility_date = "2026-06-26"
-workers_dev = true
+workers_dev = false
 
 [assets]
 directory = "apps/web/dist"
