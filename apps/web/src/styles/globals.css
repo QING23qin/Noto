@@ -1,4 +1,5 @@
 @import "highlight.js/styles/github.css";
+@import "./editor-themes/index.css";
 
 @tailwind base;
 @tailwind components;
@@ -172,6 +173,9 @@ textarea {
 }
 
 .ProseMirror {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
   color: #000;
   font-size: var(--editor-body-font-size);
   line-height: var(--editor-body-line-height);
@@ -193,6 +197,8 @@ textarea {
 
 @media (max-width: 1023px) {
   .ProseMirror {
+    max-width: none;
+    margin: 0;
     padding: 18px 16px max(4rem, env(safe-area-inset-bottom));
   }
 }
@@ -726,6 +732,28 @@ textarea {
   .markdown-content td {
     width: var(--mobile-table-column-width);
     min-width: var(--mobile-table-column-width);
+  }
+}
+
+@media (min-width: 768px) {
+  .ProseMirror .tableWrapper {
+    width: 100%;
+  }
+
+  .ProseMirror table {
+    width: 100%;
+    min-width: 100% !important;
+    table-layout: auto;
+  }
+
+  .ProseMirror table col {
+    width: auto !important;
+  }
+
+  .ProseMirror th,
+  .ProseMirror td {
+    width: auto;
+    min-width: 0;
   }
 }
 
