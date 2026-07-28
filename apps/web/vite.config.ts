@@ -121,8 +121,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeManifestIcons: false,
       manifest: {
-        name: "EdgeEver",
-        short_name: "EdgeEver",
+        name: "Noto",
+        short_name: "Noto",
         description: "EdgeEver：基于 Cloudflare 全家桶自托管的开源印象笔记。",
         start_url: "/",
         scope: "/",
