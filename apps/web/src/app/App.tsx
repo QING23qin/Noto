@@ -26,7 +26,7 @@ const EvernoteImportGuidePane = lazy(() =>
 const LoginScreen = lazy(() => import("@/components/LoginScreen").then((module) => ({ default: module.LoginScreen })));
 const WorkspaceApp = lazy(() => import("@/components/WorkspaceApp").then((module) => ({ default: module.WorkspaceApp })));
 
-const AuthLoadingScreen = ({ title = "EdgeEver", detail }: { title?: string; detail?: string }) => (
+const AuthLoadingScreen = ({ title = "Noto", detail }: { title?: string; detail?: string }) => (
   <div className="flex h-[100dvh] items-center justify-center bg-slate-50 px-6 text-center text-slate-700">
     <div role="status" aria-live="polite">
       <div className="text-sm font-semibold">{title}</div>
