@@ -1166,6 +1166,7 @@ const RichEditorPane = ({
   const [tagsText, setTagsText] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "queued" | "error" | "conflict">("idle");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [hydratedEditorMemoId, setHydratedEditorMemoId] = useState<string | null>(null);
   const [dirtyVersion, setDirtyVersion] = useState(0);
   const [, setEditorStateVersion] = useState(0);
   const [editorContentVersion, setEditorContentVersion] = useState(0);
@@ -1213,7 +1214,7 @@ const RichEditorPane = ({
   useEffect(() => {
     const controller = new AbortController();
     void fetchLatestRelease(controller.signal)
-      .then((release) => setUpdateAvailable(isVersionOutdated(__EDGEEVER_APP_VERSION__, release.tagName)))
+      .then((release) => setUpdateAvailable(isVersionOutdated(__EDGEEVER_APP_VERSION__, release.version)))
       .catch(() => undefined);
     const handleReleaseStatus = () => setUpdateAvailable(true);
     window.addEventListener(RELEASE_STATUS_EVENT, handleReleaseStatus);
@@ -1286,13 +1287,27 @@ const RichEditorPane = ({
           }
 
           const currentEditor = editorRef.current;
-          if (!isMobileViewport) {
-            if (isEditorReady(currentEditor) && hydratedMemoIdRef.current === memo.id) {
-              currentEditor.commands.focus("end");
-              onMobileDefaultEditConsumed();
-              return;
+            if (!isMobileViewport) {
+              if (isEditorReady(currentEditor) && hydratedMemoIdRef.current === memo.id) {
+                currentEditor.commands.focus("end");
+                // Consuming the create request updates the parent and can
+                // briefly blur the editor during that rerender. Mobile
+                // standalone editing consumes the request above; desktop
+                // keeps it alive until the list has observed the new memo so
+                // a background refresh cannot select the previous memo.
+                window.setTimeout(() => {
+                  if (cancelled || memoRef.current?.id !== memo.id) {
+                    return;
+                  }
+
+                  const activeEditor = editorRef.current;
+                  if (isEditorReady(activeEditor)) {
+                    activeEditor.commands.focus("end");
+                  }
+                }, 0);
+                return;
+              }
             }
-          }
 
           // The editor is mounted before its memo hydration/edit session
           // finishes. Keep retrying across that async boundary so a newly
@@ -1413,7 +1428,7 @@ const RichEditorPane = ({
     content: memo
       ? resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown)
       : { type: "doc", content: [{ type: "paragraph" }] },
-    editable: Boolean(memo && !effectiveReadOnly),
+    editable: Boolean(memo && !effectiveReadOnly && hydratedEditorMemoId === memo.id),
     editorProps: {
       attributes: {
         class: "prose prose-slate max-w-none focus:outline-none min-h-[300px] px-4 py-3 sm:px-7",
@@ -1887,6 +1902,7 @@ const RichEditorPane = ({
       memoRef.current = null;
       editSessionRef.current = null;
       hydratedMemoIdRef.current = null;
+      setHydratedEditorMemoId(null);
       editingMemoIdRef.current = null;
       hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
@@ -1908,6 +1924,7 @@ const RichEditorPane = ({
 
     if (!sameMemo) {
       hydratedMemoIdRef.current = null;
+      setHydratedEditorMemoId(null);
     }
 
     if (sameMemo && hasUnsavedChangesRef.current && !memo.isDeleted) {
@@ -1969,6 +1986,7 @@ const RichEditorPane = ({
 
       hydratedMemoIdRef.current = memo.id;
       editSessionRef.current = editSessionResponse?.editSession ?? (requiresLocalEditSession(memo) ? createLocalEditSession(memo) : null);
+      setHydratedEditorMemoId(memo.id);
 
       window.setTimeout(() => {
         hydratingRef.current = false;
@@ -2001,9 +2019,9 @@ const RichEditorPane = ({
 
   useEffect(() => {
     if (isEditorReady(editor)) {
-      editor.setEditable(Boolean(memo && !effectiveReadOnly));
+      editor.setEditable(Boolean(memo && !effectiveReadOnly && hydratedEditorMemoId === memo.id));
     }
-  }, [editor, effectiveReadOnly, memo]);
+  }, [editor, effectiveReadOnly, hydratedEditorMemoId, memo]);
 
   useEffect(() => {
     if (!isEditorReady(editor) || !memo) {
@@ -2023,6 +2041,20 @@ const RichEditorPane = ({
       editor.off("update", persistDraft);
     };
   }, [editor, markDirty, memo, persistCurrentDraft]);
+
+  useEffect(() => {
+    const handleSyncCompleted = (event: Event) => {
+      const result = (event as CustomEvent<{ failed?: number; conflicted?: number }>).detail;
+      if ((result?.failed ?? 0) > 0 || (result?.conflicted ?? 0) > 0 || hasUnsavedChangesRef.current) {
+        return;
+      }
+
+      setSaveState((current) => current === "queued" ? "saved" : current);
+    };
+
+    window.addEventListener("edgeever:sync-completed", handleSyncCompleted);
+    return () => window.removeEventListener("edgeever:sync-completed", handleSyncCompleted);
+  }, []);
 
   const handleMarkdownModeChange = useCallback(() => {
     if (effectiveReadOnly || !isEditorReady(editor)) {

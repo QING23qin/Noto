@@ -38,7 +38,7 @@ import {
 } from "@/lib/mobile-editor";
 import { cn } from "@/lib/utils";
 import { isBrowserOffline, isBrowserOnline, verifyBrowserConnectivity } from "@/lib/network-status";
-import { createExcerpt, docToText, getNotebookDescendantIds, type Notebook, type AuthUser, type MemoSummary, type MemoDetail, type Resource, type MemoTemplate as SavedMemoTemplate } from "@edgeever/shared";
+import { createExcerpt, docToText, getNotebookDescendantIds, resolveMemoContentDoc, type Notebook, type AuthUser, type MemoSummary, type MemoDetail, type Resource, type MemoTemplate as SavedMemoTemplate } from "@edgeever/shared";
 import { toggleMobileMemoSelection } from "@edgeever/shared/mobile-ui";
 import type {
   Pane,
@@ -171,7 +171,7 @@ const memoToSummary = (memo: MemoDetail): MemoSummary => ({
   id: memo.id,
   notebookId: memo.notebookId,
   title: memo.title,
-  excerpt: memo.excerpt || createExcerpt(memo.contentText || docToText(memo.contentJson) || memo.contentMarkdown),
+  excerpt: memo.excerpt || createExcerpt(memo.contentText || docToText(resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown))),
   tags: memo.tags,
   isPinned: memo.isPinned,
   isArchived: memo.isArchived,
@@ -671,6 +671,8 @@ export const WorkspaceApp = ({
   const autoSelectedDemoNotebookRef = useRef(false);
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
   const [createdMemoEditId, setCreatedMemoEditId] = useState<string | null>(null);
+  const pendingCreatedMemoIdRef = useRef<string | null>(null);
+  const creatingMemoSelectionRef = useRef(false);
   const [selectedMemoIds, setSelectedMemoIds] = useState<Set<string>>(new Set());
   const [memoSelectionMode, setMemoSelectionMode] = useState(false);
   const [selectionMoveTargetNotebookId, setSelectionMoveTargetNotebookId] = useState("");
@@ -784,7 +786,8 @@ export const WorkspaceApp = ({
     try {
       if (window.edgeeverDesktop?.isAvailable) {
         const { getDesktopSyncSummary, syncDesktopData } = await import("@/lib/desktop-sync");
-        await syncDesktopData();
+        const result = await syncDesktopData();
+        window.dispatchEvent(new CustomEvent("edgeever:sync-completed", { detail: result }));
         setSyncSummary(await getDesktopSyncSummary());
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["memos"] }),
@@ -794,14 +797,19 @@ export const WorkspaceApp = ({
         return;
       }
       const { syncQueuedChanges } = await import("@/lib/sync-queue");
-      await syncQueuedChanges({
+      const result = await syncQueuedChanges({
         scope: localDataScope,
         onSynced: async (memo, item) => {
           if (item.kind === "memo.create") {
             await replaceLocalMemoId(localDataScope, item.memoId, memo);
-            if (selectedMemoId === item.memoId) {
+            if (selectedMemoId === item.memoId || pendingCreatedMemoIdRef.current === item.memoId) {
               setSelectedMemoId(memo.id);
-              setCreatedMemoEditId(null);
+              // Keep the create intent attached to the remapped memo until
+              // the editor has consumed it. The list query may still contain
+              // the pre-sync snapshot for one render and would otherwise
+              // fall back to the first memo (the demo welcome note).
+              setCreatedMemoEditId(memo.id);
+              pendingCreatedMemoIdRef.current = memo.id;
             }
           } else {
             await putLocalMemo(localDataScope, memo);
@@ -851,6 +859,7 @@ export const WorkspaceApp = ({
           ]);
         },
       });
+      window.dispatchEvent(new CustomEvent("edgeever:sync-completed", { detail: result }));
     } finally {
       setIsSyncingQueuedChanges(false);
     }
@@ -1054,7 +1063,10 @@ export const WorkspaceApp = ({
     setMemoSelectionMode(false);
   }, []);
 
-  const clearPendingCreatedMemo = useCallback(() => {}, []);
+  const clearPendingCreatedMemo = useCallback(() => {
+    pendingCreatedMemoIdRef.current = null;
+    creatingMemoSelectionRef.current = false;
+  }, []);
 
   const applyMobileEditorReturnPreview = useCallback((memoId: string | null) => {
     const returnPreview = readMobileEditorReturnPreview(memoId);
@@ -1532,6 +1544,10 @@ export const WorkspaceApp = ({
   useEffect(() => {
     const selectedMemoInList = selectedMemoId ? memos.some((memo) => memo.id === selectedMemoId) : false;
 
+    if (creatingMemoSelectionRef.current || pendingCreatedMemoIdRef.current) {
+      return;
+    }
+
     if (createdMemoEditId && selectedMemoId === createdMemoEditId) {
       // Keep the create request alive until the editor consumes it. The new
       // memo can appear in the list before its detail query has mounted the
@@ -1631,6 +1647,7 @@ export const WorkspaceApp = ({
       ]);
       navigateWorkspaceHome();
       setRightView("editor");
+      pendingCreatedMemoIdRef.current = data.memo.id;
       setCreatedMemoEditId(data.memo.id);
       setSelectedMemoId(data.memo.id);
       setActivePane("editor");
@@ -1638,6 +1655,10 @@ export const WorkspaceApp = ({
       if (!isDesktopViewport()) {
         openStandaloneMobileEditor(data.memo.id);
       }
+    },
+    onError: () => {
+      clearPendingCreatedMemo();
+      setCreatedMemoEditId(null);
     },
   });
 
@@ -2038,6 +2059,7 @@ export const WorkspaceApp = ({
 
     setTemplatesOpen(false);
     setMobileBottomNavActive("home");
+    creatingMemoSelectionRef.current = true;
     createMemoMutation.mutate({
       notebookId: targetNotebookId,
       title: template?.title ?? "",
@@ -2056,6 +2078,7 @@ export const WorkspaceApp = ({
   };
 
   const handleMobileDefaultEditConsumed = useCallback(() => {
+    pendingCreatedMemoIdRef.current = null;
     setCreatedMemoEditId(null);
   }, []);
 

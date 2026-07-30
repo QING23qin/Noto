@@ -17,6 +17,8 @@ import {
   mountedInstallerCandidates,
 } from "./installation-location.mjs";
 import { userDataDirectoryFromArguments } from "./user-data-directory.mjs";
+import { isAllowedPrintPreviewUrl } from "./window-open-policy.mjs";
+import { showWindow } from "./window-visibility.mjs";
 import electronUpdater from "electron-updater";
 
 const { autoUpdater } = electronUpdater;
@@ -294,7 +296,7 @@ const createTray = () => {
   tray = new Tray(icon);
   tray.setToolTip("EdgeEver");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Show EdgeEver", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+    { label: "Show EdgeEver", click: () => showWindow(mainWindow) },
     { label: "Sync now", click: () => sendDesktopCommand("sync-now") },
     { label: "Backup now", click: () => sendDesktopCommand("backup-now") },
     ...(updateState === "available" ? [{ label: "Download update", click: () => void autoUpdater.downloadUpdate() }] : []),
@@ -302,7 +304,7 @@ const createTray = () => {
     { type: "separator" },
     { label: "Quit EdgeEver", click: () => { isQuitting = true; app.quit(); } },
   ]));
-  tray.on("double-click", () => { mainWindow?.show(); mainWindow?.focus(); });
+  tray.on("double-click", () => showWindow(mainWindow));
 };
 
 const registerResourceProtocol = () => {
@@ -484,6 +486,18 @@ const createWindow = async () => {
   }
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("edgeever-resource://") || url.startsWith("edgeever-staged://")) return { action: "allow" };
+    if (isAllowedPrintPreviewUrl(url, mainWindow.webContents.getURL())) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        },
+      };
+    }
     if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url);
     return { action: "deny" };
   });
@@ -557,7 +571,6 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
-  await ejectMountedMacInstallers();
   if (!hasSingleInstanceLock) {
     app.quit();
     return;
@@ -660,11 +673,15 @@ app.whenReady().then(async () => {
   });
 
   await createWindow();
+  // Inspecting and ejecting mounted disk images invokes macOS command-line
+  // tools and may take several seconds. Keep that maintenance off the
+  // user-visible critical path so the first installed launch opens promptly.
+  await ejectMountedMacInstallers();
   await confirmMacInstallation();
   configureAutoUpdater();
   handleOpenTarget(process.argv);
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+    if (!showWindow(mainWindow)) void createWindow();
   });
 });
 
@@ -674,9 +691,7 @@ app.on("open-file", (event, filePath) => {
 });
 
 app.on("second-instance", (_event, commandLine) => {
-  if (mainWindow?.isMinimized()) mainWindow.restore();
-  mainWindow?.show();
-  mainWindow?.focus();
+  showWindow(mainWindow);
   handleOpenTarget(commandLine);
 });
 
